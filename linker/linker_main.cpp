@@ -28,11 +28,17 @@
 
 #include "linker_main.h"
 
+#include <async_safe/log.h>
+#include <bionic/libc_init_common.h>
+#include <bionic/pthread_internal.h>
 #include <link.h>
 #include <sys/auxv.h>
 
-#include "linker.h"
-#include "linker_auxv.h"
+#include <vector>
+
+#include "android-base/stringprintf.h"
+#include "android-base/strings.h"
+#include "android-base/unique_fd.h"
 #include "linker_cfi.h"
 #include "linker_debug.h"
 #include "linker_debuggerd.h"
@@ -45,19 +51,11 @@
 #include "linker_utils.h"
 
 #include "private/KernelArgumentBlock.h"
+#include "linker.h"
+#include "linker_auxv.h"
 #include "private/bionic_call_ifunc_resolver.h"
 #include "private/bionic_globals.h"
 #include "private/bionic_tls.h"
-
-#include "android-base/unique_fd.h"
-#include "android-base/strings.h"
-#include "android-base/stringprintf.h"
-
-#include <async_safe/log.h>
-#include <bionic/libc_init_common.h>
-#include <bionic/pthread_internal.h>
-
-#include <vector>
 
 __LIBC_HIDDEN__ extern "C" void _start();
 

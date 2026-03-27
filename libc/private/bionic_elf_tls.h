@@ -56,16 +56,28 @@ private:
   size_t alignment_ = 1;
   bool overflowed_ = false;
 
+  // one 144 for glibc IE TLS space
+  static constexpr size_t kLibcIeTls = 144 + 144;
+
+  size_t surplus_ = kLibcIeTls;
+  using update_static_tls_func = void (*)(const TlsSegment& segment,
+                                          size_t static_offset);
+  update_static_tls_func update_static_tls_ = nullptr;
+
   // Offsets to various Bionic TLS structs from the beginning of static TLS.
   size_t offset_bionic_tcb_ = SIZE_MAX;
   size_t offset_bionic_tls_ = SIZE_MAX;
 
-public:
+  pthread_mutex_t surplus_lock_ = PTHREAD_MUTEX_INITIALIZER;
+
+ public:
   size_t offset_bionic_tcb() const { return offset_bionic_tcb_; }
   size_t offset_bionic_tls() const { return offset_bionic_tls_; }
   size_t offset_thread_pointer() const;
 
-  size_t size() const { return offset_; }
+  // Size of surplus space in the static TLS area for dynamically loaded
+  // modules with IE-model TLS or for TLSDESC optimization.
+  size_t size() const { return offset_ + surplus_; }
   size_t alignment() const { return alignment_; }
   bool overflowed() const { return overflowed_; }
 
@@ -75,6 +87,10 @@ public:
     return reserve(segment.size, segment.alignment);
   }
   void finish_layout();
+
+  // return SIZE_MAX(-1) if fail
+  size_t try_allocate_solib_segment(const TlsSegment& segment);
+  void set_update_static_tls_func(update_static_tls_func update_static_tls);
 
 private:
   size_t reserve(size_t size, size_t alignment);

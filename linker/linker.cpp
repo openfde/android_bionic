@@ -70,6 +70,7 @@
 #include "linker_tls.h"
 #include "linker_translate_path.h"
 #include "linker_utils.h"
+#include "linker_adapter.h"
 
 #include "android-base/macros.h"
 #include "android-base/stringprintf.h"
@@ -1126,6 +1127,12 @@ static int open_library(android_namespace_t* ns,
     }
   }
 
+  if (fd == -1) {
+    if (auto cached = LinkerAdapter::Instance()->GnuLoadCacheLookup(ns, name); cached){
+      fd = open_library_at_path(zip_archive_cache, cached, file_offset, realpath);
+    }
+  }
+
   // Finally search the namespace's main search path list.
   if (fd == -1) {
     fd = open_library_on_paths(zip_archive_cache, name, file_offset, ns->get_default_library_paths(), realpath);
@@ -1679,7 +1686,21 @@ bool find_libraries(android_namespace_t* ns,
            start_ns->get_name(), start_ns, task->get_name(), is_dt_needed);
 
     if (!find_library_internal(start_ns, task, &zip_archive_cache, &load_tasks, rtld_flags)) {
-      return false;
+      if (LinkerAdapter::Instance()->IsEnabledHybris()) {
+        android_namespace_t* gnu_ns = LinkerAdapter::Instance()->GetGnuNamespace();
+        if (!gnu_ns || gnu_ns == start_ns || !find_library_internal(gnu_ns,
+                                task,
+                                &zip_archive_cache,
+                                &load_tasks,
+                                rtld_flags)) {
+          return false;
+        }
+        if (!LinkerAdapter::Instance()->LoadAdapter()){
+          return false;
+        }
+      } else {
+        return false;
+      }
     }
 
     soinfo* si = task->get_soinfo();
@@ -1706,11 +1727,23 @@ bool find_libraries(android_namespace_t* ns,
     // once, even if it appears multiple times in the dependency graph.
     if (is_ld_preload || (si->get_dt_flags_1() & DF_1_GLOBAL) != 0) {
       if (!si->is_linked() && namespaces != nullptr && !new_global_group_members.contains(si)) {
-        new_global_group_members.push_back(si);
-        for (auto linked_ns : *namespaces) {
-          if (si->get_primary_namespace() != linked_ns) {
-            linked_ns->add_soinfo(si);
-            si->add_secondary_namespace(linked_ns);
+        if (LinkerAdapter::Instance()->IsEnabledHybris()) {
+          auto gnu_ns = LinkerAdapter::Instance()->GetGnuNamespace();
+          new_global_group_members.push_back(si);
+          for (auto linked_ns : *namespaces) {
+            auto si_ns = si->get_primary_namespace();
+            if (si_ns != linked_ns && si_ns != gnu_ns) {
+              linked_ns->add_soinfo(si);
+              si->add_secondary_namespace(linked_ns);
+            }
+          }
+        } else {
+          new_global_group_members.push_back(si);
+          for (auto linked_ns : *namespaces) {
+            if (si->get_primary_namespace() != linked_ns) {
+              linked_ns->add_soinfo(si);
+              si->add_secondary_namespace(linked_ns);
+            }
           }
         }
       }
@@ -1728,6 +1761,9 @@ bool find_libraries(android_namespace_t* ns,
     if (!si->is_linked() &&
         std::find_if(load_list.begin(), load_list.end(), pred) == load_list.end() ) {
       load_list.push_back(task);
+      if (LinkerAdapter::Instance()->IsEnabledHybris()) {
+        LinkerAdapter::Instance()->InitGnuAdaptee(si);
+      }
     }
   }
   bool reserved_address_recursive = false;
@@ -1993,6 +2029,9 @@ static void soinfo_unload_impl(soinfo* root) {
   }
 
   local_unload_list.for_each([](soinfo* si) {
+    if (LinkerAdapter::Instance()->IsEnabledHybris()) {
+      LinkerAdapter::Instance()->DeinitGnuAdaptee(si);
+    }
     LD_LOG(kLogDlopen,
            "... dlclose: calling destructors for \"%s\"@%p ... ",
            si->get_realpath(),
@@ -2842,7 +2881,9 @@ bool soinfo::lookup_version_info(const VersionTracker& version_tracker, ElfW(Wor
                                  const char* sym_name, const version_info** vi) {
   const ElfW(Versym)* sym_ver_ptr = get_versym(sym);
   ElfW(Versym) sym_ver = sym_ver_ptr == nullptr ? 0 : *sym_ver_ptr;
-
+  if (LinkerAdapter::Instance()->IsEnabledHybris()) {
+    sym_ver &= 0x7fff;
+  }
   if (sym_ver != VER_NDX_LOCAL && sym_ver != VER_NDX_GLOBAL) {
     *vi = version_tracker.get_version_info(sym_ver);
 
