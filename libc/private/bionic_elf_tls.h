@@ -91,6 +91,7 @@ private:
   // return SIZE_MAX(-1) if fail
   size_t try_allocate_solib_segment(const TlsSegment& segment);
   void set_update_static_tls_func(update_static_tls_func update_static_tls);
+  void update_static_tls(const TlsSegment& segment, size_t static_offset);
 
 private:
   size_t reserve(size_t size, size_t alignment);

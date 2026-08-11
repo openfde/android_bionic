@@ -31,6 +31,7 @@ class LinkerAdapter {
   android_namespace_t* GetGnuNamespace();
 
   bool IsEnabledHybris();
+  bool IsGnuNamesSpace(soinfo* si);
 
  private:
   using FindSymbolAdapter = const void* (*)(const char*);

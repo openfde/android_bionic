@@ -175,6 +175,14 @@ void StaticTlsLayout::finish_layout() {
   pthread_mutex_unlock(&surplus_lock_);
 }
 
+void StaticTlsLayout::update_static_tls(const TlsSegment& segment, size_t offset)
+{
+  if (update_static_tls_) {
+    // Initialize the TLS segment in the created threads
+    update_static_tls_(segment, offset);
+  }
+}
+
 size_t StaticTlsLayout::try_allocate_solib_segment(const TlsSegment& segment) {
   // If we've already used the variable with dynamic access, or if the alignment
   // requirements are too high, fail.

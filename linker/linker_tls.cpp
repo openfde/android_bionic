@@ -157,10 +157,19 @@ void unregister_soinfo_tls(soinfo* si) {
 }
 
 size_t get_static_offset_from_tsl_module(TlsModule& mod, const soinfo& si) {
-  if (g_static_tls_finished && mod.static_offset == SIZE_MAX && si.get_tls()) {
-    StaticTlsLayout& layout = __libc_shared_globals()->static_tls_layout;
-    mod.static_offset =
-        layout.try_allocate_solib_segment(si.get_tls()->segment);
+  if (g_static_tls_finished && si.get_tls()) {
+    static size_t tls_static_offset = 0;
+    if (mod.static_offset == SIZE_MAX) {
+      StaticTlsLayout& layout = __libc_shared_globals()->static_tls_layout;
+      mod.static_offset =
+          layout.try_allocate_solib_segment(si.get_tls()->segment);
+    } else if (mod.static_offset >= tls_static_offset) {
+      StaticTlsLayout& layout = __libc_shared_globals()->static_tls_layout;
+      layout.update_static_tls(si.get_tls()->segment, mod.static_offset);
+    }
+    if (mod.static_offset > tls_static_offset) {
+      tls_static_offset = mod.static_offset;
+    }
   }
   return mod.static_offset;
 }

@@ -281,3 +281,7 @@ android_namespace_t* LinkerAdapter::GetGnuNamespace() {
 bool LinkerAdapter::IsEnabledHybris() {
   return is_hybris_env;
 }
+
+bool LinkerAdapter::IsGnuNamesSpace(soinfo* si) {
+  return (si->get_primary_namespace() == GetGnuNamespace());
+}
