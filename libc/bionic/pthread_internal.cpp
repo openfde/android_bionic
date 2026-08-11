@@ -46,6 +46,26 @@
 static pthread_internal_t* g_thread_list = nullptr;
 static pthread_rwlock_t g_thread_list_lock = PTHREAD_RWLOCK_INITIALIZER;
 
+static void update_pthread_static_tls(const TlsSegment& segment,
+                                      size_t static_offset) {
+  // FIXME: it does not initialize the TLS segment in the created thread, that
+  // is not appended into thread list.
+  const StaticTlsLayout& layout = __libc_shared_globals()->static_tls_layout;
+  ScopedWriteLock locker(&g_thread_list_lock);
+  for (pthread_internal_t* t = g_thread_list; t != nullptr; t = t->next) {
+    char* static_tls = reinterpret_cast<char*>(t->mmap_base) + t->mmap_size -
+                       PTHREAD_GUARD_SIZE - layout.size();
+    if (static_tls != NULL) {
+      static_tls += static_offset;
+      if (segment.init_size > 0) {
+        memcpy(static_tls, segment.init_ptr, segment.size);
+      } else {
+        memset(static_tls, 0, segment.size);
+      }
+    }
+  }
+}
+
 pthread_t __pthread_internal_add(pthread_internal_t* thread) {
   ScopedWriteLock locker(&g_thread_list_lock);
 
@@ -56,6 +76,9 @@ pthread_t __pthread_internal_add(pthread_internal_t* thread) {
     thread->next->prev = thread;
   }
   g_thread_list = thread;
+
+  StaticTlsLayout& layout = __libc_shared_globals()->static_tls_layout;
+  layout.set_update_static_tls_func(update_pthread_static_tls);
   return reinterpret_cast<pthread_t>(thread);
 }
 

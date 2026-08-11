@@ -34,12 +34,13 @@
 #include <type_traits>
 
 #include "linker.h"
+#include "linker_adapter.h"
 #include "linker_debug.h"
 #include "linker_globals.h"
 #include "linker_gnu_hash.h"
 #include "linker_phdr.h"
-#include "linker_relocs.h"
 #include "linker_reloc_iterators.h"
+#include "linker_relocs.h"
 #include "linker_sleb128.h"
 #include "linker_soinfo.h"
 #include "private/bionic_globals.h"
@@ -283,6 +284,11 @@ static bool process_relocation_impl(Relocator& relocator, const rel_t& reloc) {
       // Do nothing.
     } else {
       if (!lookup_symbol<IsGeneral>(relocator, r_sym, sym_name, &found_in, &sym)) return false;
+
+      if (LinkerAdapter::Instance()->IsEnabledHybris()) {
+        sym_addr = LinkerAdapter::Instance()->FindSymbolByAdapter(sym_name, &found_in, &sym);
+      }
+
       if (sym != nullptr) {
         const bool should_protect_segments = handle_text_relocs &&
                                              found_in == relocator.si &&
@@ -396,8 +402,12 @@ static bool process_relocation_impl(Relocator& relocator, const rel_t& reloc) {
         } else {
           CHECK(found_in->get_tls() != nullptr); // We rejected a missing TLS segment above.
           const TlsModule& mod = get_tls_module(found_in->get_tls()->module_id);
-          if (mod.static_offset != SIZE_MAX) {
-            tpoff += mod.static_offset - relocator.tls_tp_base;
+          size_t static_offset = mod.static_offset;
+          if (LinkerAdapter::Instance()->IsEnabledHybris()) {
+            static_offset = get_static_offset_from_tsl_module(const_cast<TlsModule&>(mod), *found_in);
+          }
+          if (static_offset != SIZE_MAX) {
+            tpoff += static_offset - relocator.tls_tp_base;
           } else {
             DL_ERR("TLS symbol \"%s\" in dlopened \"%s\" referenced from \"%s\" using IE access model",
                    sym_name, found_in->get_realpath(), relocator.si->get_realpath());

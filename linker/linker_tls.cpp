@@ -39,6 +39,7 @@
 #include "private/linker_native_bridge.h"
 #include "linker_main.h"
 #include "linker_soinfo.h"
+#include "linker_adapter.h"
 
 static bool g_static_tls_finished;
 static std::vector<TlsModule> g_tls_modules;
@@ -88,7 +89,9 @@ static void unregister_tls_module(soinfo* si) {
 
   soinfo_tls* si_tls = si->get_tls();
   TlsModule& mod = g_tls_modules[__tls_module_id_to_idx(si_tls->module_id)];
-  CHECK(mod.static_offset == SIZE_MAX);
+  if (!LinkerAdapter::Instance()->IsEnabledHybris()) {
+    CHECK(mod.static_offset == SIZE_MAX);
+  }
   CHECK(mod.soinfo_ptr == si);
   mod = {};
   si_tls->module_id = kTlsUninitializedModuleId;
@@ -151,4 +154,22 @@ void unregister_soinfo_tls(soinfo* si) {
     return;
   }
   return unregister_tls_module(si);
+}
+
+size_t get_static_offset_from_tsl_module(TlsModule& mod, const soinfo& si) {
+  if (g_static_tls_finished && si.get_tls()) {
+    static size_t tls_static_offset = 0;
+    if (mod.static_offset == SIZE_MAX) {
+      StaticTlsLayout& layout = __libc_shared_globals()->static_tls_layout;
+      mod.static_offset =
+          layout.try_allocate_solib_segment(si.get_tls()->segment);
+    } else if (mod.static_offset >= tls_static_offset) {
+      StaticTlsLayout& layout = __libc_shared_globals()->static_tls_layout;
+      layout.update_static_tls(si.get_tls()->segment, mod.static_offset);
+    }
+    if (mod.static_offset > tls_static_offset) {
+      tls_static_offset = mod.static_offset;
+    }
+  }
+  return mod.static_offset;
 }
