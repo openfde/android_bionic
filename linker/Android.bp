@@ -209,6 +209,8 @@ filegroup {
         "linker_transparent_hugepage_support.cpp",
         "linker_tls.cpp",
         "linker_utils.cpp",
+        "linker_adapter.cpp",
+        "dl_cache.cpp",
         "rt.cpp",
     ],
 }
