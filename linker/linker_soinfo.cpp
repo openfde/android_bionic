@@ -37,6 +37,7 @@
 #include <async_safe/log.h>
 
 #include "linker.h"
+#include "linker_adapter.h"
 #include "linker_config.h"
 #include "linker_debug.h"
 #include "linker_globals.h"
@@ -477,6 +478,14 @@ void soinfo::call_constructors() {
   //    called again with the libc soinfo. If it doesn't trigger the early-
   //    out above, the libc constructor will be called again (recursively!).
   constructors_called = true;
+
+  if (LinkerAdapter::Instance()->IsEnabledHybris()) {
+    if (LinkerAdapter::Instance()->IsAdaptee(this)) {
+      // Skip gnu libc library dynamic initialization, otherwise the DT_INIT
+      // function (__ctype_init) fails in a multithread environment.
+      return;
+    }
+  }
 
   if (!is_main_executable() && preinit_array_ != nullptr) {
     // The GNU dynamic linker silently ignores these, but we warn the developer.

@@ -73,24 +73,40 @@ __LIBC_HIDDEN__ bool __bionic_check_tls_align(size_t align);
 struct StaticTlsLayout {
   constexpr StaticTlsLayout() {}
 
-public:
+  using update_static_tls_func = void (*)(const TlsSegment& segment,
+                                          size_t static_offset);
+
+ public:
   size_t offset_bionic_tcb() const { return offset_bionic_tcb_; }
   size_t offset_bionic_tls() const { return offset_bionic_tls_; }
   size_t offset_thread_pointer() const;
   size_t offset_exe() const { return offset_exe_; }
 
-  size_t size() const { return cursor_; }
+  // The surplus space in the static TLS area is used by dynamically loaded
+  // glibc modules (IE-model TLS / TLSDESC optimization) under hybris.
+  size_t size() const { return cursor_ + surplus_; }
 
   size_t reserve_exe_segment_and_tcb(const TlsSegment* exe_segment, const char* progname);
   size_t reserve_bionic_tls();
   size_t reserve_solib_segment(const TlsSegment& segment) { return reserve(segment.aligned_size); }
   void finish_layout();
 
+  // Returns SIZE_MAX on failure.
+  size_t try_allocate_solib_segment(const TlsSegment& segment);
+  void set_update_static_tls_func(update_static_tls_func update_static_tls);
+  void update_static_tls(const TlsSegment& segment, size_t static_offset);
+
 #if !defined(STATIC_TLS_LAYOUT_TEST)
  private:
 #endif
   size_t cursor_ = 0;
   size_t align_ = 1;
+
+  // One 144 for glibc IE TLS space.
+  static constexpr size_t kLibcIeTls = 144 + 144;
+  size_t surplus_ = kLibcIeTls;
+  pthread_mutex_t surplus_lock_ = PTHREAD_MUTEX_INITIALIZER;
+  update_static_tls_func update_static_tls_ = nullptr;
 
   // Offsets to various Bionic TLS structs from the beginning of static TLS.
   size_t offset_bionic_tcb_ = SIZE_MAX;

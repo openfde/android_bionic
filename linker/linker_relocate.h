@@ -57,9 +57,13 @@ template <bool Enabled> void count_relocation_if(RelocationKind kind) {
 
 void print_linker_stats();
 
+#ifndef STB_GNU_UNIQUE
+#define STB_GNU_UNIQUE 10
+#endif
 inline bool is_symbol_global_and_defined(const soinfo* si, const ElfW(Sym)* s) {
   if (__predict_true(ELF_ST_BIND(s->st_info) == STB_GLOBAL ||
-                     ELF_ST_BIND(s->st_info) == STB_WEAK)) {
+                     ELF_ST_BIND(s->st_info) == STB_WEAK ||
+                     ELF_ST_BIND(s->st_info) == STB_GNU_UNIQUE)) {
     return s->st_shndx != SHN_UNDEF;
   } else if (__predict_false(ELF_ST_BIND(s->st_info) != STB_LOCAL)) {
     DL_WARN("Warning: unexpected ST_BIND value: %d for \"%s\" in \"%s\" (ignoring)",
