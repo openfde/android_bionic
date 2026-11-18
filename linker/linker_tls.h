@@ -43,6 +43,8 @@ void unregister_soinfo_tls(soinfo* si);
 
 const TlsModule& get_tls_module(size_t module_id);
 
+size_t get_static_offset_from_tsl_module(TlsModule& mod, const soinfo& si);
+
 typedef size_t TlsDescResolverFunc(size_t);
 
 struct TlsDescriptor {

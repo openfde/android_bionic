@@ -196,8 +196,79 @@ size_t StaticTlsLayout::reserve_bionic_tls() {
 }
 
 void StaticTlsLayout::finish_layout() {
+  pthread_mutex_lock(&surplus_lock_);
   // Round the offset up to the alignment.
   cursor_ = align_checked(cursor_, TlsAlign{.value = align_});
+  surplus_ = align_checked(surplus_, TlsAlign{.value = align_});
+  if (size_t offset = cursor_;
+      __builtin_add_overflow(cursor_, surplus_, &offset)) {
+    surplus_ = 0;
+  }
+
+  // Reset alignment for IE TLS.
+  align_ = sizeof(void*);
+  pthread_mutex_unlock(&surplus_lock_);
+}
+
+void StaticTlsLayout::update_static_tls(const TlsSegment& segment, size_t offset)
+{
+  if (update_static_tls_) {
+    // Initialize the TLS segment in the created threads
+    update_static_tls_(segment, offset);
+  }
+}
+
+size_t StaticTlsLayout::try_allocate_solib_segment(const TlsSegment& segment) {
+  // If we've already used the variable with dynamic access, or if the alignment
+  // requirements are too high, fail.
+  const TlsAlign segment_align = segment.aligned_size.align;
+  const size_t segment_size = segment.aligned_size.size;
+  if (surplus_ < segment_size || surplus_ < segment_align.value) {
+    return SIZE_MAX;
+  }
+  // Maybe more than one thread loads different libraries at the same time.
+  pthread_mutex_lock(&surplus_lock_);
+  // Double check after taking the lock.
+  if (surplus_ < segment_size || surplus_ < segment_align.value) {
+    pthread_mutex_unlock(&surplus_lock_);
+    return SIZE_MAX;
+  }
+
+  size_t surplus = surplus_;
+  size_t offset_pos = cursor_;
+  size_t offset = offset_pos;
+
+  offset_pos = align_checked(offset_pos, segment_align);
+  surplus -= (offset_pos - offset);
+
+  offset = offset_pos;
+  if (__builtin_add_overflow(offset_pos, segment_size, &offset_pos)) {
+    pthread_mutex_unlock(&surplus_lock_);
+    return SIZE_MAX;
+  }
+  offset_pos = align_checked(offset_pos, segment_align);
+  surplus -= (offset_pos - offset);
+  if (surplus > surplus_) {
+    pthread_mutex_unlock(&surplus_lock_);
+    return SIZE_MAX;
+  }
+  surplus_ = surplus;
+  cursor_ = offset_pos;
+
+  pthread_mutex_unlock(&surplus_lock_);
+
+  if (update_static_tls_) {
+    // Initialize the TLS segment in the created threads.
+    update_static_tls_(segment, offset);
+  }
+  return offset;
+}
+
+void StaticTlsLayout::set_update_static_tls_func(
+    update_static_tls_func update_static_tls) {
+  if (!update_static_tls_) {
+    update_static_tls_ = update_static_tls;
+  }
 }
 
 size_t StaticTlsLayout::align_cursor(TlsAlign align) {
@@ -262,9 +333,8 @@ void __init_static_tls(void* static_tls) {
   for (size_t i = 0; i < modules.module_count; ++i) {
     TlsModule& module = modules.module_table[i];
     if (module.static_offset == SIZE_MAX) {
-      // All of the static modules come before all of the dynamic modules, so
-      // once we see the first dynamic module, we're done.
-      break;
+      // Not all of the static modules come before all of the dynamic modules.
+      continue;
     }
     if (module.segment.init_size == 0) {
       // Skip the memcpy call for TLS segments with no initializer, which is
